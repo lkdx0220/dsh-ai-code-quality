@@ -1,0 +1,47 @@
+{
+  "name": "dsh-ai-code-quality",
+  "version": "0.1.0",
+  "description": "ai-code-quality (cq) tools for DeepSeek Harness (dsh): deterministic code-quality pipeline — doctor/scan/triage/baseline/diff/gate/waiver/spec-drift — aggregating ruff, mypy, radon, vulture, pytest-cov, import-linter and DeepSec. Read-only scanning plus audited ledger writes (waiver/suppression); code changes are never exposed as tools and always require explicit CLI approval.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "code-quality",
+    "static-analysis",
+    "quality-gate",
+    "ruff",
+    "mypy",
+    "baseline",
+    "spec-drift"
+  ],
+  "files": [
+    "index.js",
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node test/smoke.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

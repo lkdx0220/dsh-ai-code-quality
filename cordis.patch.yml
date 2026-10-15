@@ -1,0 +1,7 @@
+# Cordis bundle layer for dsh-ai-code-quality.
+# `dsh plugin add` merges every installed dependency that declares
+# `dsh.bundle.patch` into the profile bundle list automatically;
+# users never edit their profile config by hand.
+- insert:
+    - id: dsh-ai-code-quality
+      name: dsh-ai-code-quality
