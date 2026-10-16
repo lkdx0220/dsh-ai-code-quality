@@ -8,6 +8,10 @@
 
 语言无关的能力仍可使用：`cq_spec_gate`、`cq_waiver` 和 `cq_promote` 只依赖 git 与 Markdown/spec 文本，不要求 Python 源码。多语言 adapter 尚未包含在当前插件版本中。
 
+## Web UI 范围
+
+这是一个 **host 侧工具插件**，不是 Web UI 插件。它可以安装到 DSH Web profile，并在 Web 会话中提供 `cq_*` 工具；但不会注入浏览器脚本、添加设置页、侧栏按钮、主题或其他可视化组件。因此 `package.json` 有 `dsh.bundle` 配置，但没有 `dsh.client` 配置。
+
 ## 能力
 
 | 工具 | 用途 | 是否写入项目 |
