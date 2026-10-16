@@ -47,7 +47,8 @@ const LAB_DIR = path.resolve(PLUGIN_DIR, '..') // 实验场根（含 src/tests �
 
 let failures = 0
 function check(name, cond, detail) {
-  console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${cond ? '' : ' :: ' + JSON.stringify(detail)?.slice(0, 300)}`)
+  const suffix = !cond && detail !== undefined ? ` :: ${JSON.stringify(detail)?.slice(0, 300)}` : ''
+  console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${suffix}`)
   if (!cond) failures++
 }
 
@@ -92,15 +93,56 @@ async function exec(sink, name, args, opts) {
 
 // ---------- 主路径（需要真实 cq） ----------
 // D4：execFile 探针把 EPERM（沙箱禁管道子进程）也当成"未装"→ 假 SKIP。
-// 改用 fileExists 探测 PATH 上的 cq（不 spawn），spawn 能力单独探测并区分原因。
-const { execFile, exec: shellExec } = await import('node:child_process')
-const which = (name) => new Promise((r) => {
-  shellExec(`where ${name}`, { windowsHide: true }, (e, out) => r(e ? null : out.trim().split(/\r?\n/)[0]))
-})
-const cqPath = await which('cq')
-const canSpawn = await new Promise((r) => {
-  const p = execFile('cq', ['--version'], { windowsHide: true }, (e) => r(!e))
-  if (p) p.on('error', () => r(false))
+// 先用文件存在性探测 PATH 上的 cq（不 spawn），再单独探测 spawn 能力并区分原因。
+const { execFile } = await import('node:child_process')
+const which = (name) => {
+  const rawName = String(name || '').trim()
+  if (!rawName) return null
+
+  const names = process.platform === 'win32' && !path.extname(rawName)
+    ? [rawName, ...String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+      .split(';')
+      .filter(Boolean)
+      .map((suffix) => rawName + suffix)]
+    : [rawName]
+
+  for (const entry of String(process.env.PATH || '').split(path.delimiter)) {
+    const directory = entry || process.cwd()
+    for (const candidateName of names) {
+      const candidate = path.resolve(directory, candidateName)
+      try {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate
+      } catch {
+        // A disappearing or inaccessible PATH entry is equivalent to a miss.
+      }
+    }
+  }
+  return null
+}
+const cqPath = which('cq')
+const canSpawn = await new Promise((resolve) => {
+  if (!cqPath) {
+    resolve(false)
+    return
+  }
+
+  let settled = false
+  const finish = (value) => {
+    if (!settled) {
+      settled = true
+      resolve(value)
+    }
+  }
+
+  let child
+  try {
+    child = execFile(cqPath, ['--version'], { windowsHide: true }, (error) => finish(!error))
+  } catch {
+    // Restricted runners may throw EPERM synchronously before returning a child.
+    finish(false)
+    return
+  }
+  if (child) child.once('error', () => finish(false))
 })
 const STRICT = process.env.SMOKE_STRICT === '1'
 
