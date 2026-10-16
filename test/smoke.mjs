@@ -9,10 +9,37 @@
 //
 // 运行前提：PATH 有 cq（主路径用例）；缺失命令用例自带假 command，不需要任何安装。
 
-import { apply } from '../index.js'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
+
+// 宿主模拟：注入与宿主同语义的 defineTool（宿主真实实现打包在 app.asar 里，
+// 磁盘上不存在 @deepseek-ai/dsh-tools，裸 Node 永远 import 不到）。
+// 关键复现两点：① 注册时校验 output.render 为函数；② 包装层的 render 在调用时执行。
+// 缺 render 的 spec 在这里就会炸——正是缺陷报告 D1 的暴露路径。
+globalThis.__DSH_TEST_DEFINE_TOOL__ = function defineTool(options) {
+  const userExecute = options.execute
+  const userRender = options.output?.render
+  if (typeof userRender !== 'function') {
+    throw new TypeError(`tool "${options.name}" must declare output { schema, render }`)
+  }
+  return {
+    ...options,
+    output: {
+      ...options.output,
+      render(args, value) {
+        return userRender(args, value)
+      },
+    },
+    async execute(args, exec) {
+      const value = await userExecute(args, exec)
+      // 宿主在结果渲染阶段调用 render（D2 教训：渲染失败会掩盖已发生的副作用）
+      const rendered = options.output.render(args, value)
+      return { ...value, __rendered: rendered }
+    },
+  }
+}
+const { apply } = await import('../index.js')
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PLUGIN_DIR = path.resolve(HERE, '..')
@@ -44,16 +71,40 @@ async function exec(sink, name, args, opts) {
   const rebuild = sink.find((s) => s.name === 'cq_spec_rebuild')
   check('fix 工具无 apply 参数', fixPlan && !('apply' in (fixPlan.parameters || {})), fixPlan?.parameters)
   check('spec-rebuild 工具无 apply 参数', rebuild && !('apply' in (rebuild.parameters || {})), rebuild?.parameters)
+  // D1 回归闸：宿主 defineTool 要求 output.render 为函数（缺失=每次调用渲染期炸）
+  const noRender = names.filter((n) => {
+    const s = sink.find((x) => x.name === n)
+    return typeof s?.output?.render !== 'function'
+  })
+  check('全部工具有 output.render 函数', noRender.length === 0, noRender)
+  // 渲染器实际可调用且产出 text 块（宿主在结果渲染阶段调用它）
+  let renderBroken = []
+  for (const s of sink) {
+    try {
+      const blocks = s.output.render({}, { ok: true, probe: 1 })
+      if (!Array.isArray(blocks) || typeof blocks[0]?.text !== 'string') renderBroken.push(s.name)
+    } catch { renderBroken.push(s.name) }
+  }
+  check('render() 可调用且返回 text 块', renderBroken.length === 0, renderBroken)
   dispose()
   check('disposer 卸载全部工具', sink.length === 0, sink.length)
 }
 
 // ---------- 主路径（需要真实 cq） ----------
-const hasCq = await import('node:child_process')
-  .then(({ execFile }) => new Promise((r) => execFile('cq', ['--version'], (e) => r(!e))))
-  .catch(() => false)
+// D4：execFile 探针把 EPERM（沙箱禁管道子进程）也当成"未装"→ 假 SKIP。
+// 改用 fileExists 探测 PATH 上的 cq（不 spawn），spawn 能力单独探测并区分原因。
+const { execFile, exec: shellExec } = await import('node:child_process')
+const which = (name) => new Promise((r) => {
+  shellExec(`where ${name}`, { windowsHide: true }, (e, out) => r(e ? null : out.trim().split(/\r?\n/)[0]))
+})
+const cqPath = await which('cq')
+const canSpawn = await new Promise((r) => {
+  const p = execFile('cq', ['--version'], { windowsHide: true }, (e) => r(!e))
+  if (p) p.on('error', () => r(false))
+})
+const STRICT = process.env.SMOKE_STRICT === '1'
 
-if (hasCq) {
+if (cqPath && canSpawn) {
   const sink = []
   apply(makeCtx(sink), { command: 'cq', timeoutMs: 300000 })
 
@@ -70,8 +121,12 @@ if (hasCq) {
   // waiver 缺理由（真实 CLI 的 exit 3 路径）
   const wv = await exec(sink, 'cq_waiver', { project: LAB_DIR, reason: 'x', ttl: 'bad-ttl' })
   check('waiver 非法 ttl → ok:false 透传', wv.ok === false, wv)
+} else if (cqPath && !canSpawn) {
+  const msg = `主路径未跑：cq 在 PATH（${cqPath}）但当前沙箱禁止管道子进程（EPERM）——环境限制，非插件缺陷`
+  if (STRICT) { check(msg, false) } else { console.log('SKIP ' + msg) }
 } else {
-  console.log('SKIP 主路径用例（PATH 无 cq）')
+  const msg = '主路径未跑：PATH 无 cq'
+  if (STRICT) { check(msg, false) } else { console.log('SKIP ' + msg) }
 }
 
 // ---------- 2. cq 不存在 → 规范化错误，不抛异常 ----------

@@ -1,20 +1,35 @@
 import { runCq, parseJsonOutput } from './lib/cq.js'
 
-// `@deepseek-ai/dsh-tools` ships with every dsh profile; fall back to a
-// passthrough so the plugin still loads under older/preview loaders.
-let defineTool = (spec) => spec
-try {
-  const mod = await import('@deepseek-ai/dsh-tools')
-  if (typeof mod.defineTool === 'function') defineTool = mod.defineTool
-} catch {
-  /* register raw tool specs instead */
+// 宿主契约：@deepseek-ai/dsh-tools 由宿主运行时提供（asar overlay 解析）。
+// 不做 passthrough 兜底（项目规则：消除 fallback 触发场景）——本地裸 Node 解析不到
+// 属预期，直接 fail-fast，让"插件在不在真宿主里"在加载期就可判定，而不是
+// 在每次工具调用时以 output.render 缺失的形式晚爆。
+let defineTool
+if (globalThis.__DSH_TEST_DEFINE_TOOL__) {
+  // 测试宿主模拟（仅 npm test）：注入与宿主同语义的 defineTool——它同样要求
+  // output.render 并在包装层调用，复现宿主契约路径而非绕过契约的 passthrough（D5 教训）
+  defineTool = globalThis.__DSH_TEST_DEFINE_TOOL__
+} else {
+  try {
+    const mod = await import('@deepseek-ai/dsh-tools')
+    defineTool = mod.defineTool
+  } catch (err) {
+    throw new Error(
+      'dsh-ai-code-quality: @deepseek-ai/dsh-tools unavailable — this plugin must load ' +
+      'inside a dsh host profile, not bare Node. Original error: ' + String(err?.message || err),
+    )
+  }
+  if (typeof defineTool !== 'function') {
+    throw new Error('dsh-ai-code-quality: dsh-tools did not export defineTool')
+  }
 }
 
 let z = null
 try {
   z = (await import('@deepseek-ai/schemastery')).default
 } catch {
-  /* plain descriptor objects below already work as a schema stand-in */
+  // schemastery 仅影响 Config 的 schema 形态（z.object），描述符对象同样合法；
+  // 它不影响工具 output/parameters 的宿主校验路径，保留兜底不掩盖契约差异
 }
 
 export const name = 'dsh-ai-code-quality'
@@ -55,6 +70,16 @@ export function apply(ctx, config = {}) {
   const disposers = specs.map((spec) => ctx.tools.register(defineTool(spec))).filter(Boolean)
   return () => {
     for (const dispose of disposers) dispose()
+  }
+}
+
+// 宿主 defineTool 契约：output.render 为必需项（缺失时注册通过、每次调用在
+// 渲染阶段抛 userRender is not a function —— 见缺陷报告 D1）。所有工具都返回
+// JSON 对象，共用一个渲染器。
+function objectOutput() {
+  return {
+    schema: { type: 'object', additionalProperties: true },
+    render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
   }
 }
 
@@ -146,7 +171,7 @@ function doctorTool(opts) {
       'commands for anything missing. Machine-level check (no --project); run this first on a new machine; never assume ' +
       'tools are installed.',
     parameters: {},
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const res = await runCq({ ...opts, signal: exec?.signal }, ['doctor', '--format', 'json'], [0, 2])
       const failure = asFailure(res)
@@ -173,7 +198,7 @@ function scanTool(opts) {
       adapters: { type: 'string', description: 'Comma-separated adapter subset, e.g. "ruff-check,mypy,radon".' },
       noDeepsec: { type: 'boolean', description: 'Skip the DeepSec security adapter.' },
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['scan', '--project', args.project || opts.project, '--format', 'json']
       if (args.scope) argv.push('--scope', args.scope)
@@ -214,7 +239,7 @@ function triageTool(opts) {
       run: { type: 'string', required: true, description: 'Run id (unique prefix OK) from a previous cq_scan.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       return runJsonTool(opts, ['triage', '--run', args.run, '--format', 'json', '--project', args.project || opts.project], { exec })
     },
@@ -230,7 +255,7 @@ function baselineTool(opts) {
       name: { type: 'string', description: 'Baseline name (letters/digits/_/-). Default "baseline".' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['baseline', '--run', args.run, '--name', args.name || 'baseline', '--project', args.project || opts.project]
       const res = await runCq({ ...opts, signal: exec?.signal }, argv, [0])
@@ -252,7 +277,7 @@ function diffTool(opts) {
       baseline: { type: 'string', required: true, description: 'Baseline name or another run id.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['diff', '--run', args.run, '--baseline', args.baseline, '--format', 'json', '--project', args.project || opts.project]
       const res = await runCq({ ...opts, signal: exec?.signal }, argv, [0, 1])
@@ -288,7 +313,7 @@ function gateTool(opts) {
       target: { type: 'string', description: 'A (default): 0 blocker/0 high. B: 0 blocker/≤2 high.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['gate', '--run', args.run, '--target', args.target || 'A', '--format', 'json', '--project', args.project || opts.project]
       if (args.baseline) argv.push('--baseline', args.baseline)
@@ -325,7 +350,7 @@ function waiverTool(opts) {
       change: { type: 'string', description: 'Related change/proposal id (optional).' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['waiver', '--reason', args.reason, '--ttl', args.ttl, '--project', args.project || opts.project]
       if (args.change) argv.push('--change', args.change)
@@ -352,7 +377,7 @@ function specGateTool(opts) {
       range: { type: 'string', description: 'Explicit revision range like main...feature.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['spec-gate', '--mode', args.mode || 'soft', '--project', args.project || opts.project]
       if (args.paths) argv.push('--paths', args.paths)
@@ -378,7 +403,7 @@ function fixPlanTool(opts) {
       batch: { type: 'number', description: 'Show only this batch number.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['fix', '--run', args.run, '--format', 'json', '--project', args.project || opts.project]
       if (args.batch != null) argv.push('--batch', String(args.batch))
@@ -404,7 +429,7 @@ function suppressReapplyTool(opts) {
       run: { type: 'string', required: true, description: 'Run id whose findings define the new ids.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['suppress', '--run', args.run, '--reapply', '--project', args.project || opts.project]
       const res = await runCq({ ...opts, signal: exec?.signal }, argv, [0])
@@ -425,7 +450,7 @@ function specRebuildTool(opts) {
     parameters: {
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['spec-rebuild', '--draft', '--json', '--project', args.project || opts.project]
       const res = await runCq({ ...opts, signal: exec?.signal }, argv, [0])
@@ -450,7 +475,7 @@ function promoteTool(opts) {
       id: { type: 'string', description: 'Optional decision identifier (file name or slug prefix) to draft specifically.' },
       project: projectParam(),
     },
-    output: { schema: { type: 'object', additionalProperties: true } },
+    output: objectOutput(),
     async execute(args, exec) {
       const argv = ['promote', '--project', args.project || opts.project]
       if (args.id) argv.push('--id', args.id)
