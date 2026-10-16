@@ -2,6 +2,14 @@
   "name": "dsh-ai-code-quality",
   "version": "0.1.0",
   "description": "ai-code-quality (cq) tools for DeepSeek Harness (dsh): deterministic code-quality pipeline — doctor/scan/triage/baseline/diff/gate/waiver/spec-drift — aggregating ruff, mypy, radon, vulture, pytest-cov, import-linter and DeepSec. Read-only scanning plus audited ledger writes (waiver/suppression); code changes are never exposed as tools and always require explicit CLI approval.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lkdx0220/dsh-ai-code-quality.git"
+  },
+  "homepage": "https://github.com/lkdx0220/dsh-ai-code-quality#readme",
+  "bugs": {
+    "url": "https://github.com/lkdx0220/dsh-ai-code-quality/issues"
+  },
   "type": "module",
   "main": "index.js",
   "license": "MIT",
