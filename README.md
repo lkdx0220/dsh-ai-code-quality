@@ -4,6 +4,10 @@
 
 插件本身不重新实现检测规则。每次调用都启动 `cq` CLI，并解析其 `--format json` 输出；扫描、聚合、基线、质量门和豁免账本仍由 cq 负责。插件适合需要在 DSH 会话中检查 Python 仓库、比较质量基线或规划修复批次的项目。
 
+> **语言边界：当前版本只支持 Python 仓库的代码质量扫描。** `cq_scan`、`cq_triage`、`cq_gate`、`cq_diff`、`cq_fix_plan` 和 `cq_spec_rebuild` 依赖 Python 目标与 Python 工具链；对 Java、Go、TypeScript 等非 Python 仓库，不会产生完整的代码质量结论，扫描可能因找不到 `.py` 目标而返回空结果。
+
+语言无关的能力仍可使用：`cq_spec_gate`、`cq_waiver` 和 `cq_promote` 只依赖 git 与 Markdown/spec 文本，不要求 Python 源码。多语言 adapter 尚未包含在当前插件版本中。
+
 ## 能力
 
 | 工具 | 用途 | 是否写入项目 |
@@ -35,7 +39,7 @@
 - Node.js ≥ 20。
 - 已安装 [ai-code-quality/cq](https://github.com/lkdx0220/ai-code-quality-skill)。
 - `cq` 在 PATH 中可执行，或在插件配置的 `command` 字段中提供替代调用方式。
-- cq 当前主要面向 Python 仓库；`spec-gate`、`waiver` 和 `promote` 的部分能力可用于其他语言项目。
+- 代码质量扫描当前只支持 Python 仓库；非 Python 仓库请只使用明确标注为语言无关的 spec 工具。
 
 插件运行时依赖的 `@deepseek-ai/dsh-tools` 由 DSH 宿主提供，不能用裸 Node 直接加载插件来代替宿主验证。
 
