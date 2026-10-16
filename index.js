@@ -213,11 +213,15 @@ function scanTool(opts) {
       }
       const runId = parsed.run_id
       const artifacts = `audits/${runId}/`
+      const tools = Array.isArray(parsed.tools) ? parsed.tools : []
       return {
         ok: true,
         exitCode: res.code,
         runId,
         toolsIncomplete: res.code === 2,
+        toolsSkipped: tools.filter((t) => t.status === 'skipped').length,
+        tools,
+        notes: parsed.notes ?? [],
         summary: parsed.totals ?? null,
         artifacts: {
           report: `${artifacts}report.md`,

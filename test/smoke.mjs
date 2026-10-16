@@ -111,6 +111,7 @@ if (cqPath && canSpawn) {
   // 1. scan → triage（triage 成功即证明参数顺序已修复：此前 --project 前置导致 exit 2）
   const scan = await exec(sink, 'cq_scan', { project: LAB_DIR, adapters: 'ruff-check', noDeepsec: true })
   check('scan 真实执行 ok=true + runId', scan.ok === true && typeof scan.runId === 'string', scan)
+  check('scan 响应含 tools/notes（N2 兑现）', Array.isArray(scan.tools) && Array.isArray(scan.notes), scan.tools)
   const triage = await exec(sink, 'cq_triage', { project: LAB_DIR, run: scan.runId })
   check('triage 真实执行 ok=true（参数顺序修复）', triage.ok === true, triage)
 
