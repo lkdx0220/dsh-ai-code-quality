@@ -100,3 +100,19 @@ DSH 插件和 [`agent-adapters/dsh/SKILL.md`](https://github.com/lkdx0220/ai-cod
 - 插件未装配时，DSH Skill 仍可直接调用 cq CLI，能力保持可用。
 
 插件版本和 cq 本体版本分别维护。发布插件时应同时记录兼容的 cq 版本范围，并附上 `npm test` 与真实宿主验证结果。
+
+## 许可证与第三方工具声明
+
+本插件及 `cq` 编排代码以 MIT 许可证发布，完整文本见 [`LICENSE`](LICENSE)。插件不包含下列检测工具的源代码，只在运行时调用用户环境中已安装的工具；它们的版权归各自作者，并分别遵循上游许可证：
+
+| 工具 | 用途 | 许可证 | 上游 |
+|---|---|---|---|
+| [ruff](https://github.com/astral-sh/ruff) | lint、格式检查 | MIT | Astral |
+| [mypy](https://github.com/python/mypy) | 静态类型检查 | MIT | python/mypy |
+| [radon](https://github.com/rubik/radon) | 圈复杂度、可维护性指数 | MIT | rubik/radon |
+| [vulture](https://github.com/jendrikseipp/vulture) | 死代码检测 | MIT | jendrikseipp |
+| [pytest](https://github.com/pytest-dev/pytest) / [pytest-cov](https://github.com/pytest-dev/pytest-cov) | 测试执行、覆盖率 | MIT | pytest-dev |
+| [import-linter](https://github.com/seddony/import-linter) | 架构依赖契约 | BSD 2-Clause | seddony |
+| [DeepSec](https://github.com/Unclecheng-li/DeepSec) | L1/L2 安全扫描 | MIT | Unclecheng-li |
+
+插件自身只负责 DSH 工具注册与 `cq` CLI 调用；底层检测结论由上述工具产生。
